@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     CartesianGrid,
     Line,
@@ -58,6 +58,12 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
     onHover,
     onSplitPointsChange,
 }) => {
+    const [visibleCurves, setVisibleCurves] = useState({
+        elevation: true,
+        speed: true,
+        direction: false,
+    });
+
     const { chartData, hoverPoints } = useMemo(() => {
         const data: TrackChartPoint[] = [];
         const realPoints: TrackChartPoint[] = [];
@@ -225,26 +231,67 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
                     <span className="font-medium">Track profile</span> combines elevation, speed,
                     and direction. Click to add split points; hover to preview location on the map.
                 </p>
-                <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
-                    <li className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden="true" />
+                <fieldset className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-700">
+                    <legend className="sr-only">Curves to display</legend>
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded accent-blue-600 focus:ring-2 focus:ring-blue-500"
+                            checked={visibleCurves.elevation}
+                            onChange={event =>
+                                setVisibleCurves(current => ({
+                                    ...current,
+                                    elevation: event.target.checked,
+                                }))
+                            }
+                        />
                         Elevation (m)
-                    </li>
-                    <li className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-cyan-500" aria-hidden="true" />
+                    </label>
+                    <label
+                        className={`flex items-center gap-1.5 ${
+                            speedValues.length > 0
+                                ? 'cursor-pointer'
+                                : 'cursor-not-allowed text-gray-500'
+                        }`}
+                    >
+                        <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded accent-cyan-600 focus:ring-2 focus:ring-cyan-500"
+                            checked={visibleCurves.speed && speedValues.length > 0}
+                            disabled={speedValues.length === 0}
+                            onChange={event =>
+                                setVisibleCurves(current => ({
+                                    ...current,
+                                    speed: event.target.checked,
+                                }))
+                            }
+                        />
                         Speed (km/h)
-                        {speedValues.length === 0 && (
-                            <span className="text-gray-500">(no time data)</span>
-                        )}
-                    </li>
-                    <li className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-violet-500" aria-hidden="true" />
+                        {speedValues.length === 0 && <span>(no time data)</span>}
+                    </label>
+                    <label
+                        className={`flex items-center gap-1.5 ${
+                            directionValues.length > 0
+                                ? 'cursor-pointer'
+                                : 'cursor-not-allowed text-gray-500'
+                        }`}
+                    >
+                        <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded accent-violet-600 focus:ring-2 focus:ring-violet-500"
+                            checked={visibleCurves.direction && directionValues.length > 0}
+                            disabled={directionValues.length === 0}
+                            onChange={event =>
+                                setVisibleCurves(current => ({
+                                    ...current,
+                                    direction: event.target.checked,
+                                }))
+                            }
+                        />
                         Direction (°)
-                        {directionValues.length === 0 && (
-                            <span className="text-gray-500">(no direction data)</span>
-                        )}
-                    </li>
-                </ul>
+                        {directionValues.length === 0 && <span>(no direction data)</span>}
+                    </label>
+                </fieldset>
             </div>
 
             <div className="h-80 w-full cursor-pointer">
@@ -270,15 +317,16 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
                             yAxisId="elevation"
                             type="number"
                             orientation="left"
-                            width={58}
+                            width={visibleCurves.elevation ? 58 : 0}
                             domain={elevationScale.domain}
                             ticks={elevationScale.ticks}
                             interval={0}
                             tickFormatter={value => formatAxisValue(Number(value), elevationStep, 'm')}
                             stroke="#6b7280"
                             fontSize={11}
+                            hide={!visibleCurves.elevation}
                         />
-                        {speedValues.length > 0 && (
+                        {speedValues.length > 0 && visibleCurves.speed && (
                             <YAxis
                                 yAxisId="speed"
                                 type="number"
@@ -298,14 +346,14 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
                             yAxisId="direction"
                             type="number"
                             orientation="left"
-                            width={58}
+                            width={visibleCurves.direction && directionValues.length > 0 ? 58 : 0}
                             domain={DIRECTION_DOMAIN}
                             ticks={DIRECTION_TICKS}
                             interval={0}
                             tickFormatter={value => `${value}°`}
                             stroke="#6b7280"
                             fontSize={11}
-                            hide={directionValues.length === 0}
+                            hide={!visibleCurves.direction || directionValues.length === 0}
                         />
                         <Tooltip
                             formatter={(value, name) => {
@@ -340,6 +388,7 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
                             strokeWidth={2}
                             dot={false}
                             activeDot={{ r: 4, stroke: '#3b82f6', fill: '#ffffff' }}
+                            hide={!visibleCurves.elevation}
                         />
                         <Line
                             yAxisId="speed"
@@ -350,7 +399,7 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
                             strokeWidth={2}
                             dot={false}
                             activeDot={{ r: 4, stroke: '#06b6d4', fill: '#ffffff' }}
-                            hide={speedValues.length === 0}
+                            hide={!visibleCurves.speed || speedValues.length === 0}
                         />
                         <Line
                             yAxisId="direction"
@@ -362,14 +411,16 @@ const TrackChartComponent: React.FC<TrackChartProps> = ({
                             dot={false}
                             connectNulls={false}
                             activeDot={{ r: 4, stroke: '#8b5cf6', fill: '#ffffff' }}
-                            hide={directionValues.length === 0}
+                            hide={!visibleCurves.direction || directionValues.length === 0}
                         />
-                        <ReferenceLine
-                            yAxisId="direction"
-                            y={0}
-                            stroke="#9ca3af"
-                            strokeDasharray="3 3"
-                        />
+                        {visibleCurves.direction && directionValues.length > 0 && (
+                            <ReferenceLine
+                                yAxisId="direction"
+                                y={0}
+                                stroke="#9ca3af"
+                                strokeDasharray="3 3"
+                            />
+                        )}
                         {boundaries.map((distance, index) => (
                             <ReferenceLine
                                 key={`${distance}-${index}`}

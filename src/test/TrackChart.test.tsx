@@ -44,12 +44,20 @@ vi.mock('recharts', () => ({
         dataKey,
         name,
         yAxisId,
+        hide,
     }: {
         dataKey?: string;
         name?: string;
         yAxisId?: string;
+        hide?: boolean;
     }) => (
-        <div data-testid="line" data-key={dataKey} data-name={name} data-axis-id={yAxisId} />
+        <div
+            data-testid="line"
+            data-key={dataKey}
+            data-name={name}
+            data-axis-id={yAxisId}
+            data-hidden={hide ?? false}
+        />
     ),
     XAxis: () => null,
     YAxis: ({
@@ -58,6 +66,7 @@ vi.mock('recharts', () => ({
         ticks,
         orientation,
         hide,
+        width,
         tickFormatter,
     }: {
         yAxisId?: string;
@@ -65,6 +74,7 @@ vi.mock('recharts', () => ({
         ticks?: number[];
         orientation?: string;
         hide?: boolean;
+        width?: number;
         tickFormatter?: (value: number) => string;
     }) => (
         <div
@@ -74,6 +84,7 @@ vi.mock('recharts', () => ({
             data-ticks={ticks?.join(',')}
             data-orientation={orientation}
             data-hidden={hide}
+            data-width={width}
             data-first-label={ticks?.[0] !== undefined ? tickFormatter?.(ticks[0]) : ''}
         />
     ),
@@ -224,6 +235,66 @@ describe('TrackChart', () => {
         expect(markers.map(marker => marker.getAttribute('data-label'))).toEqual(['A', 'B']);
     });
 
+    it('starts with direction hidden and toggles curves together with their axes', () => {
+        render(<TrackChart track={makeTimedTrack()} />);
+
+        const directionToggle = screen.getByRole('checkbox', {
+            name: 'Direction (°)',
+        }) as HTMLInputElement;
+        expect(directionToggle.checked).toBe(false);
+
+        const directionAxis = screen
+            .getAllByTestId('y-axis')
+            .find(axis => axis.getAttribute('data-axis-id') === 'direction');
+        const directionLine = screen
+            .getAllByTestId('line')
+            .find(line => line.getAttribute('data-axis-id') === 'direction');
+        expect(directionAxis?.getAttribute('data-hidden')).toBe('true');
+        expect(directionLine?.getAttribute('data-hidden')).toBe('true');
+
+        fireEvent.click(directionToggle);
+        expect(directionToggle.checked).toBe(true);
+        expect(directionAxis?.getAttribute('data-hidden')).toBe('false');
+        expect(directionLine?.getAttribute('data-hidden')).toBe('false');
+
+        const elevationToggle = screen.getByRole('checkbox', {
+            name: 'Elevation (m)',
+        }) as HTMLInputElement;
+        fireEvent.click(elevationToggle);
+        expect(
+            screen
+                .getAllByTestId('y-axis')
+                .find(axis => axis.getAttribute('data-axis-id') === 'elevation')
+                ?.getAttribute('data-hidden')
+        ).toBe('true');
+
+        const speedToggle = screen.getByRole('checkbox', {
+            name: 'Speed (km/h)',
+        }) as HTMLInputElement;
+        fireEvent.click(speedToggle);
+        expect(speedToggle.checked).toBe(false);
+        expect(
+            screen
+                .getAllByTestId('y-axis')
+                .some(axis => axis.getAttribute('data-axis-id') === 'speed')
+        ).toBe(false);
+    });
+
+    it('keeps the elevation scale visible when elevation is the only selected curve', () => {
+        render(<TrackChart track={makeTimedTrack()} />);
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Speed (km/h)' }));
+
+        const axes = screen.getAllByTestId('y-axis');
+        const elevationAxis = axes.find(axis => axis.getAttribute('data-axis-id') === 'elevation');
+        const directionAxis = axes.find(axis => axis.getAttribute('data-axis-id') === 'direction');
+
+        expect(elevationAxis?.getAttribute('data-width')).toBe('58');
+        expect(elevationAxis?.getAttribute('data-hidden')).toBe('false');
+        expect(directionAxis?.getAttribute('data-width')).toBe('0');
+        expect(directionAxis?.getAttribute('data-hidden')).toBe('true');
+    });
+
     it('keeps the combined elevation chart usable when track timestamps are unavailable', () => {
         render(
             <TrackChart
@@ -234,6 +305,11 @@ describe('TrackChart', () => {
             />
         );
 
+        const speedToggle = screen.getByRole('checkbox', {
+            name: /Speed \(km\/h\)/,
+        }) as HTMLInputElement;
+        expect(speedToggle.disabled).toBe(true);
+        expect(speedToggle.checked).toBe(false);
         expect(screen.getByText('(no time data)').textContent).toBe('(no time data)');
         expect(
             screen
@@ -241,6 +317,20 @@ describe('TrackChart', () => {
                 .some(axis => axis.getAttribute('data-axis-id') === 'speed')
         ).toBe(false);
         expect(screen.queryByTestId('line-chart')).not.toBeNull();
+    });
+
+    it('disables the direction toggle when the track has no direction data', () => {
+        render(
+            <TrackChart
+                track={makeTrack([{ lat: 40, lon: -74, elevation: 100 }])}
+            />
+        );
+
+        const directionToggle = screen.getByRole('checkbox', {
+            name: /Direction \(°\)/,
+        }) as HTMLInputElement;
+        expect(directionToggle.disabled).toBe(true);
+        expect(directionToggle.checked).toBe(false);
     });
 
     it('breaks only the direction line where bearing wraps around north', () => {
