@@ -417,6 +417,7 @@ describe('App Component', () => {
             expect(screen.getByTestId('split-boundaries')).toHaveTextContent('1');
             expect(screen.getByTestId('chart-boundaries')).toHaveTextContent('5000');
         });
+
     });
 
     describe('Segment Generation and Download', () => {
