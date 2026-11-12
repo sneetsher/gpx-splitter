@@ -301,6 +301,7 @@ function App() {
                                     <ElevationChart
                                         track={gpxTrack}
                                         onHover={setHoveredPoint}
+                                        boundaries={boundaries}
                                         onSplitPointsChange={setBoundaries}
                                     />
                                 </ErrorBoundary>
@@ -321,7 +322,12 @@ function App() {
                                         </div>
                                     )}
                                 >
-                                    <SpeedChart track={gpxTrack} onHover={setHoveredPoint} />
+                                    <SpeedChart
+                                        track={gpxTrack}
+                                        onHover={setHoveredPoint}
+                                        boundaries={boundaries}
+                                        onSplitPointsChange={setBoundaries}
+                                    />
                                 </ErrorBoundary>
                             </div>
 

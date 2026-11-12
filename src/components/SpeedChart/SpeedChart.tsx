@@ -7,6 +7,7 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
+    ReferenceLine,
 } from 'recharts';
 import { throttle } from 'es-toolkit';
 import { calculateDistance, DistanceUnit } from '../../utils/distance';
@@ -22,12 +23,19 @@ export interface SpeedPoint {
 
 export interface SpeedChartProps {
     track: GpxTrack;
+    boundaries?: number[];
     onHover?: (point: { lat: number; lon: number; elevation?: number } | null) => void;
+    onSplitPointsChange?: (boundaries: number[]) => void;
 }
 
 const MOUSE_THROTTLE_MS = 50;
 
-const SpeedChartComponent: React.FC<SpeedChartProps> = ({ track, onHover }) => {
+const SpeedChartComponent: React.FC<SpeedChartProps> = ({
+    track,
+    boundaries = [],
+    onHover,
+    onSplitPointsChange,
+}) => {
     const speedData = useMemo<SpeedPoint[]>(() => {
         const res: SpeedPoint[] = [];
         let cumulativeDistance = 0;
@@ -39,8 +47,14 @@ const SpeedChartComponent: React.FC<SpeedChartProps> = ({ track, onHover }) => {
             // distance between prev and cur (km)
             let d = 0;
             try {
-                d = calculateDistance(prev.lat, prev.lon, cur.lat, cur.lon, DistanceUnit.KILOMETERS);
-            } catch (e) {
+                d = calculateDistance(
+                    prev.lat,
+                    prev.lon,
+                    cur.lat,
+                    cur.lon,
+                    DistanceUnit.KILOMETERS
+                );
+            } catch {
                 // skip invalid segment
                 continue;
             }
@@ -63,7 +77,7 @@ const SpeedChartComponent: React.FC<SpeedChartProps> = ({ track, onHover }) => {
                     speed,
                     lat: cur.lat,
                     lon: cur.lon,
-                    elevation: cur.elevation,
+                    ...(cur.elevation !== undefined ? { elevation: cur.elevation } : {}),
                 });
             }
         }
@@ -72,29 +86,52 @@ const SpeedChartComponent: React.FC<SpeedChartProps> = ({ track, onHover }) => {
     }, [track.points]);
 
     // throttled hover handler so map updates aren't excessively frequent
-    const handleChartMouseMove = useCallback(
-        throttle((data: { activeLabel?: string } | null) => {
-            if (data && data.activeLabel !== undefined && onHover) {
-                const distance = parseFloat(String(data.activeLabel));
-                // find closest point by distance (tolerance 0.05 km)
-                const point = speedData.reduce<SpeedPoint | null>((best, p) => {
-                    if (best === null) return p;
-                    return Math.abs(p.distance - distance) < Math.abs(best.distance - distance) ? p : best;
-                }, null);
+    const handleChartMouseMove = useMemo(
+        () =>
+            throttle((data: { activeLabel?: string | undefined } | null) => {
+                if (data && data.activeLabel !== undefined && onHover) {
+                    const distance = parseFloat(String(data.activeLabel));
+                    if (!Number.isFinite(distance)) return;
 
-                if (point) {
-                    onHover({ lat: point.lat, lon: point.lon, elevation: point.elevation });
+                    // Find the closest chart point to the active distance.
+                    const point = speedData.reduce<SpeedPoint | null>((best, p) => {
+                        if (best === null) return p;
+                        return Math.abs(p.distance - distance) < Math.abs(best.distance - distance)
+                            ? p
+                            : best;
+                    }, null);
+
+                    if (point) {
+                        onHover({
+                            lat: point.lat,
+                            lon: point.lon,
+                            ...(point.elevation !== undefined
+                                ? { elevation: point.elevation }
+                                : {}),
+                        });
+                    }
                 }
-            }
-        }, MOUSE_THROTTLE_MS),
+            }, MOUSE_THROTTLE_MS),
         [speedData, onHover]
     );
 
     useEffect(() => {
         return () => {
-            handleChartMouseMove.cancel?.();
+            handleChartMouseMove.cancel();
         };
     }, [handleChartMouseMove]);
+
+    const handleChartClick = useCallback(
+        (data: { activeLabel?: string | number | undefined } | null) => {
+            if (data?.activeLabel === undefined) return;
+
+            const distance = Number(data.activeLabel);
+            if (!Number.isFinite(distance) || boundaries.includes(distance)) return;
+
+            onSplitPointsChange?.([...boundaries, distance].sort((a, b) => a - b));
+        },
+        [boundaries, onSplitPointsChange]
+    );
 
     const handleMouseLeave = () => {
         onHover?.(null);
@@ -112,37 +149,40 @@ const SpeedChartComponent: React.FC<SpeedChartProps> = ({ track, onHover }) => {
     const minSpeed = Math.min(...speeds);
     const maxSpeed = Math.max(...speeds);
     const range = Math.max(0.1, maxSpeed - minSpeed);
-    const yDomain = [Math.max(0, minSpeed - range * 0.1), maxSpeed + range * 0.1];
+    const yDomain: [number, number] = [Math.max(0, minSpeed - range * 0.1), maxSpeed + range * 0.1];
 
     return (
         <div className="w-full">
             <div className="mb-3 p-3 bg-white border border-gray-100 rounded-lg shadow-sm">
                 <p className="text-sm text-gray-700">
-                    <span className="font-medium">Speed profile</span> shows instantaneous speed between recorded points (km/h). Hover to preview location on the map.
+                    <span className="font-medium">Speed profile</span> shows instantaneous speed
+                    between recorded points (km/h). Click to add split points; hover to preview
+                    location on the map.
                 </p>
             </div>
 
-            <div className="h-48 w-full">
+            <div className="h-48 w-full cursor-pointer">
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                         data={speedData}
                         margin={{ top: 8, right: 30, left: 20, bottom: 5 }}
-                        onMouseMove={(e) => handleChartMouseMove(e as any)}
+                        onMouseMove={handleChartMouseMove}
                         onMouseLeave={handleMouseLeave}
+                        onClick={handleChartClick}
                     >
                         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
                         <XAxis
                             dataKey="distance"
                             type="number"
                             scale="linear"
-                            domain={["dataMin", "dataMax"]}
+                            domain={['dataMin', 'dataMax']}
                             tickFormatter={value => `${(value as number).toFixed(1)} km`}
                             stroke="#6b7280"
                             fontSize={12}
                         />
                         <YAxis
-                            domain={yDomain as any}
-                            tickFormatter={(v) => `${(v as number).toFixed(1)} km/h`}
+                            domain={yDomain}
+                            tickFormatter={v => `${(v as number).toFixed(1)} km/h`}
                             stroke="#6b7280"
                             fontSize={12}
                         />
@@ -164,6 +204,25 @@ const SpeedChartComponent: React.FC<SpeedChartProps> = ({ track, onHover }) => {
                             dot={false}
                             activeDot={{ r: 4, stroke: '#06b6d4', fill: '#ffffff' }}
                         />
+                        {boundaries.map((distance, index) => (
+                            <ReferenceLine
+                                key={`${distance}-${index}`}
+                                x={distance}
+                                stroke="#ef4444"
+                                strokeWidth={2}
+                                strokeDasharray="5 5"
+                                label={{
+                                    value: String.fromCharCode(65 + index),
+                                    position: 'top',
+                                    style: {
+                                        fill: '#ef4444',
+                                        fontWeight: 'bold',
+                                        fontSize: '11px',
+                                        textAnchor: 'middle',
+                                    },
+                                }}
+                            />
+                        ))}
                     </LineChart>
                 </ResponsiveContainer>
             </div>
