@@ -1,9 +1,15 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import { LatLngBounds, divIcon } from 'leaflet';
 import type { GpxTrack } from '../../types/gpx';
 import { decimateTrackPoints } from '../../utils/gpx';
 import { calculateDistance, DistanceUnit } from '../../utils/distance';
+import {
+    getSplitMarkerGroups,
+    SPLIT_MARKER_RADIUS,
+    TRACK_LINE_WIDTH,
+    type ScreenPoint,
+} from '../../utils/splitMarkerLayout';
 import 'leaflet/dist/leaflet.css';
 
 // Constants for map rendering optimization
@@ -36,6 +42,148 @@ const FitBounds: React.FC<{ track: GpxTrack }> = ({ track }) => {
     return null;
 };
 
+type SplitPoint = {
+    point: GpxTrack['points'][number];
+    distance: number;
+    label: string;
+};
+
+const createSplitPointIcon = (label: string, offset: ScreenPoint) => {
+    const minX = Math.min(0, offset.x - SPLIT_MARKER_RADIUS);
+    const minY = Math.min(0, offset.y - SPLIT_MARKER_RADIUS);
+    const maxX = Math.max(0, offset.x + SPLIT_MARKER_RADIUS);
+    const maxY = Math.max(0, offset.y + SPLIT_MARKER_RADIUS);
+    const width = Math.ceil(maxX - minX);
+    const height = Math.ceil(maxY - minY);
+    const target = { x: -minX, y: -minY };
+    const circle = { x: offset.x - minX, y: offset.y - minY };
+    const directionLength = Math.hypot(offset.x, offset.y) || 1;
+    const connectorEnd = {
+        x: circle.x - (offset.x / directionLength) * SPLIT_MARKER_RADIUS,
+        y: circle.y - (offset.y / directionLength) * SPLIT_MARKER_RADIUS,
+    };
+
+    return divIcon({
+        html: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true"><line x1="${target.x}" y1="${target.y}" x2="${connectorEnd.x}" y2="${connectorEnd.y}" stroke="#b91c1c" stroke-width="1" stroke-linecap="round"/><circle cx="${circle.x}" cy="${circle.y}" r="${SPLIT_MARKER_RADIUS - 1}" fill="#ef4444" stroke="#ffffff" stroke-width="2"/><text x="${circle.x}" y="${circle.y + 4}" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">${label}</text></svg>`,
+        className: 'custom-split-marker',
+        iconSize: [width, height],
+        iconAnchor: [target.x, target.y],
+    });
+};
+
+const SplitPointMarkers: React.FC<{
+    splitPoints: SplitPoint[];
+    pathCoordinates: [number, number][];
+}> = ({ splitPoints, pathCoordinates }) => {
+    const map = useMap();
+    const [, setMapViewVersion] = useState(0);
+
+    useEffect(() => {
+        const updateMarkerLayout = () => setMapViewVersion(version => version + 1);
+        map.on('moveend zoomend resize', updateMarkerLayout);
+        return () => {
+            map.off('moveend zoomend resize', updateMarkerLayout);
+        };
+    }, [map]);
+
+    const mapSize = map.getSize();
+    const targets = splitPoints.map(({ point }) =>
+        map.latLngToContainerPoint([point.lat, point.lon])
+    );
+    const projectedPath = pathCoordinates.map(coordinate =>
+        map.latLngToContainerPoint(coordinate)
+    );
+    const visibleIndexes = targets.flatMap((target, index) =>
+        Number.isFinite(target.x) &&
+        Number.isFinite(target.y) &&
+        target.x >= 0 &&
+        target.x <= mapSize.x &&
+        target.y >= 0 &&
+        target.y <= mapSize.y
+            ? [index]
+            : []
+    );
+    const markerGroups = getSplitMarkerGroups(
+        visibleIndexes.map(index => targets[index]),
+        projectedPath,
+        mapSize
+    ).map(group => ({
+        ...group,
+        splitPoints: group.indexes.map(index => splitPoints[visibleIndexes[index]]),
+    }));
+    const unplacedPoints = markerGroups
+        .filter(group => group.offset === null)
+        .flatMap(group => group.splitPoints);
+
+    return (
+        <>
+            {markerGroups.map(group => {
+                const offset = group.offset;
+                if (!offset) return null;
+                const anchorPoint = splitPoints[visibleIndexes[group.anchorIndex]];
+                const markerLabel =
+                    group.splitPoints.length === 1
+                        ? anchorPoint.label
+                        : String(group.splitPoints.length);
+
+                return (
+                    <Marker
+                        key={`split-${group.indexes.join('-')}`}
+                        position={[anchorPoint.point.lat, anchorPoint.point.lon]}
+                        title={
+                            group.splitPoints.length === 1
+                                ? `Split Point ${anchorPoint.label}`
+                                : `${group.splitPoints.length} split points: ${group.splitPoints
+                                      .map(point => point.label)
+                                      .join(', ')}`
+                        }
+                        icon={createSplitPointIcon(markerLabel, offset)}
+                    >
+                        <Popup>
+                            <div className="text-sm">
+                                <div className="font-semibold">
+                                    {group.splitPoints.length === 1
+                                        ? `Split Point ${anchorPoint.label}`
+                                        : `${group.splitPoints.length} Split Points`}
+                                </div>
+                                {group.splitPoints.map(splitPoint => (
+                                    <div className="mt-1" key={splitPoint.label}>
+                                        {group.splitPoints.length > 1 && (
+                                            <div className="font-medium">
+                                                Split Point {splitPoint.label}
+                                            </div>
+                                        )}
+                                        <div>Distance: {splitPoint.distance.toFixed(2)} km</div>
+                                        <div>Lat: {splitPoint.point.lat.toFixed(6)}</div>
+                                        <div>Lon: {splitPoint.point.lon.toFixed(6)}</div>
+                                        {splitPoint.point.elevation && (
+                                            <div>
+                                                Elevation: {splitPoint.point.elevation.toFixed(1)}m
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </Popup>
+                    </Marker>
+                );
+            })}
+            {unplacedPoints.length > 0 && (
+                <div
+                    className="leaflet-bottom leaflet-left pointer-events-none"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <div className="m-2 rounded bg-white px-3 py-2 text-xs text-gray-700 shadow-lg">
+                        Split points {unplacedPoints.map(point => point.label).join(', ')} are
+                        grouped; zoom in or pan to display them on the map.
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
 export const GpxTrackMap: React.FC<GpxTrackMapProps> = ({
     track,
     hoveredPoint,
@@ -50,7 +198,7 @@ export const GpxTrackMap: React.FC<GpxTrackMapProps> = ({
     }, [track.points]);
 
     // Find track points that correspond to split boundaries
-    const splitPoints = useMemo(() => {
+    const splitPoints = useMemo<SplitPoint[]>(() => {
         if (boundaries.length === 0) return [];
 
         const points = [];
@@ -93,7 +241,10 @@ export const GpxTrackMap: React.FC<GpxTrackMapProps> = ({
     }, [track.points, boundaries]);
 
     // Convert track points to Leaflet LatLng format (using original points for accuracy)
-    const pathCoordinates: [number, number][] = displayPoints.map(point => [point.lat, point.lon]);
+    const pathCoordinates = useMemo<[number, number][]>(
+        () => displayPoints.map(point => [point.lat, point.lon]),
+        [displayPoints]
+    );
 
     // Calculate center point for initial map view
     const centerLat = (track.bounds.north + track.bounds.south) / 2;
@@ -106,16 +257,6 @@ export const GpxTrackMap: React.FC<GpxTrackMapProps> = ({
             className: 'custom-waypoint-marker',
             iconSize: [24, 24],
             iconAnchor: [12, 12],
-        });
-    };
-
-    // Create custom markers for split points
-    const createSplitPointIcon = (label: string) => {
-        return divIcon({
-            html: `<div class="bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold border-2 border-white shadow-lg">${label}</div>`,
-            className: 'custom-split-marker',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
         });
     };
 
@@ -144,7 +285,12 @@ export const GpxTrackMap: React.FC<GpxTrackMapProps> = ({
 
                 <FitBounds track={track} />
 
-                <Polyline positions={pathCoordinates} color="#3b82f6" weight={4} opacity={0.8} />
+                <Polyline
+                    positions={pathCoordinates}
+                    color="#3b82f6"
+                    weight={TRACK_LINE_WIDTH}
+                    opacity={0.8}
+                />
 
                 {/* Hover point marker */}
                 {hoveredPoint && (
@@ -202,30 +348,10 @@ export const GpxTrackMap: React.FC<GpxTrackMapProps> = ({
                     </Marker>
                 ))}
 
-                {/* Split point markers */}
-                {splitPoints.map((splitPoint, index) => (
-                    <Marker
-                        key={`split-${index}`}
-                        position={[splitPoint.point.lat, splitPoint.point.lon]}
-                        icon={createSplitPointIcon(splitPoint.label)}
-                    >
-                        <Popup>
-                            <div className="text-sm">
-                                <div className="font-semibold">Split Point {splitPoint.label}</div>
-                                <div className="mt-1">
-                                    <div>Distance: {splitPoint.distance.toFixed(2)} km</div>
-                                    <div>Lat: {splitPoint.point.lat.toFixed(6)}</div>
-                                    <div>Lon: {splitPoint.point.lon.toFixed(6)}</div>
-                                    {splitPoint.point.elevation && (
-                                        <div>
-                                            Elevation: {splitPoint.point.elevation.toFixed(1)}m
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </Popup>
-                    </Marker>
-                ))}
+                <SplitPointMarkers
+                    splitPoints={splitPoints}
+                    pathCoordinates={pathCoordinates}
+                />
             </MapContainer>
 
             <div className="absolute top-4 left-4 bg-white bg-opacity-90 rounded-lg p-3 shadow-lg">
