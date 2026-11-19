@@ -15,6 +15,10 @@ To enable Google Analytics 4, add a repository Actions variable named
 `VITE_GA_MEASUREMENT_ID` with the web stream's `G-...` measurement ID. The build
 omits the Analytics scripts when the variable is unset.
 
+To enable Google Tag Manager, add a repository Actions variable named
+`VITE_GTM_CONTAINER_ID` with the container's `GTM-...` ID. The build omits the
+GTM script and fallback iframe when the variable is unset.
+
 ## Cloudflare Pages
 
 This section explains how to deploy the GPX Splitter application to Cloudflare Pages.

@@ -1,13 +1,18 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type HtmlTagDescriptor } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { execSync } from 'child_process';
 
 const commitSha = execSync('git rev-parse --short HEAD').toString().trim();
 const googleAnalyticsId = process.env.VITE_GA_MEASUREMENT_ID?.trim();
+const googleTagManagerId = process.env.VITE_GTM_CONTAINER_ID?.trim();
 
 if (googleAnalyticsId && !/^G-[A-Z0-9]+$/.test(googleAnalyticsId)) {
     throw new Error('VITE_GA_MEASUREMENT_ID must be a valid GA4 measurement ID.');
+}
+
+if (googleTagManagerId && !/^GTM-[A-Z0-9]+$/.test(googleTagManagerId)) {
+    throw new Error('VITE_GTM_CONTAINER_ID must be a valid GTM container ID.');
 }
 
 // https://vite.dev/config/
@@ -16,26 +21,56 @@ export default defineConfig(() => ({
         react(),
         tailwindcss(),
         {
-            name: 'google-analytics',
+            name: 'google-tracking',
             apply: 'build',
-            transformIndexHtml: () =>
-                googleAnalyticsId
-                    ? [
-                          {
-                              tag: 'script',
-                              attrs: {
-                                  async: true,
-                                  src: `https://www.googletagmanager.com/gtag/js?id=${googleAnalyticsId}`,
-                              },
-                              injectTo: 'head',
-                          },
-                          {
-                              tag: 'script',
-                              children: `window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', ${JSON.stringify(googleAnalyticsId)});`,
-                              injectTo: 'head',
-                          },
-                      ]
-                    : [],
+            transformIndexHtml: () => {
+                const tags: HtmlTagDescriptor[] = [];
+
+                if (googleAnalyticsId) {
+                    tags.push(
+                        {
+                            tag: 'script',
+                            attrs: {
+                                async: true,
+                                src: `https://www.googletagmanager.com/gtag/js?id=${googleAnalyticsId}`,
+                            },
+                            injectTo: 'head',
+                        },
+                        {
+                            tag: 'script',
+                            children: `window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', ${JSON.stringify(googleAnalyticsId)});`,
+                            injectTo: 'head',
+                        }
+                    );
+                }
+
+                if (googleTagManagerId) {
+                    tags.push(
+                        {
+                            tag: 'script',
+                            children: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${JSON.stringify(googleTagManagerId)});`,
+                            injectTo: 'head',
+                        },
+                        {
+                            tag: 'noscript',
+                            children: [
+                                {
+                                    tag: 'iframe',
+                                    attrs: {
+                                        src: `https://www.googletagmanager.com/ns.html?id=${googleTagManagerId}`,
+                                        height: '0',
+                                        width: '0',
+                                        style: 'display:none;visibility:hidden',
+                                    },
+                                },
+                            ],
+                            injectTo: 'body-prepend',
+                        }
+                    );
+                }
+
+                return tags;
+            },
         },
     ],
     base: process.env.VITE_BASE_PATH ?? '/',
