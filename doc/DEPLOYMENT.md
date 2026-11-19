@@ -1,6 +1,19 @@
-# Deploying to Cloudflare Pages
+# Deployment
 
-This guide explains how to deploy the GPX Splitter application to Cloudflare Pages.
+## GitHub Pages
+
+The `Deploy to GitHub Pages` workflow builds the app with `npm run build` and deploys
+the generated `dist` directory when changes are pushed to `main`. It can also be
+started manually from the Actions tab. Vite is configured for the repository URL
+`https://sneetsher.github.io/gpx-splitter/`.
+
+In the repository's Pages settings, select **GitHub Actions** as the build and
+deployment source. Other hosting targets use Vite's default root path unless
+`VITE_BASE_PATH` is set.
+
+## Cloudflare Pages
+
+This section explains how to deploy the GPX Splitter application to Cloudflare Pages.
 
 ## Prerequisites
 

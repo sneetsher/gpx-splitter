@@ -8,6 +8,7 @@ const commitSha = execSync('git rev-parse --short HEAD').toString().trim();
 // https://vite.dev/config/
 export default defineConfig(() => ({
     plugins: [react(), tailwindcss()],
+    base: process.env.VITE_BASE_PATH ?? '/',
 
     // Environment-specific settings
     define: {
