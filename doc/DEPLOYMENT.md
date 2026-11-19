@@ -11,6 +11,10 @@ In the repository's Pages settings, select **GitHub Actions** as the build and
 deployment source. Other hosting targets use Vite's default root path unless
 `VITE_BASE_PATH` is set.
 
+To enable Google Analytics 4, add a repository Actions variable named
+`VITE_GA_MEASUREMENT_ID` with the web stream's `G-...` measurement ID. The build
+omits the Analytics scripts when the variable is unset.
+
 ## Cloudflare Pages
 
 This section explains how to deploy the GPX Splitter application to Cloudflare Pages.
