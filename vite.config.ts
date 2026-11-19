@@ -4,10 +4,40 @@ import tailwindcss from '@tailwindcss/vite';
 import { execSync } from 'child_process';
 
 const commitSha = execSync('git rev-parse --short HEAD').toString().trim();
+const googleAnalyticsId = process.env.VITE_GA_MEASUREMENT_ID?.trim();
+
+if (googleAnalyticsId && !/^G-[A-Z0-9]+$/.test(googleAnalyticsId)) {
+    throw new Error('VITE_GA_MEASUREMENT_ID must be a valid GA4 measurement ID.');
+}
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-    plugins: [react(), tailwindcss()],
+    plugins: [
+        react(),
+        tailwindcss(),
+        {
+            name: 'google-analytics',
+            apply: 'build',
+            transformIndexHtml: () =>
+                googleAnalyticsId
+                    ? [
+                          {
+                              tag: 'script',
+                              attrs: {
+                                  async: true,
+                                  src: `https://www.googletagmanager.com/gtag/js?id=${googleAnalyticsId}`,
+                              },
+                              injectTo: 'head',
+                          },
+                          {
+                              tag: 'script',
+                              children: `window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', ${JSON.stringify(googleAnalyticsId)});`,
+                              injectTo: 'head',
+                          },
+                      ]
+                    : [],
+        },
+    ],
     base: process.env.VITE_BASE_PATH ?? '/',
 
     // Environment-specific settings
